@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -46,14 +46,19 @@ function MapClickHandler({
   bubbles,
   zoom,
   onSelect,
+  onClose,
 }: {
   bubbles: Bubble[];
   zoom: number;
   onSelect: (ids: string[]) => void;
+  onClose: () => void;
 }) {
   useMapEvents({
     click: (e) => {
-      if (zoom < 12) return;
+      if (zoom < 12) {
+        onClose();
+        return;
+      }
       const map = e.target;
       const clickPoint = map.latLngToContainerPoint(e.latlng);
 
@@ -70,6 +75,8 @@ function MapClickHandler({
 
       if (closestBubble) {
         onSelect(closestBubble.observation_ids);
+      } else {
+        onClose();
       }
     },
   });
@@ -92,6 +99,9 @@ export function ObservationMap({ data, selectedSpecies = new Set<string>() }: { 
   const baseAreaKeys = SURVEY_AREA_KEYS.filter((k) => k !== "other_areas");
   const [zoom, setZoom] = useState<number>(7);
   const [selectedBubbleIds, setSelectedBubbleIds] = useState<string[] | null>(null);
+  const [activeObservationId, setActiveObservationId] = useState<string | null>(null);
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const sidebarRef = useRef<HTMLDivElement>(null);
   // Shared canvas renderer: without this, GeoJSON/Polygon/CircleMarker layers each
   // get their own full-map <canvas> per pane, and the topmost one swallows ALL
   // clicks regardless of whether a shape was actually drawn there. Sharing one
@@ -214,8 +224,31 @@ export function ObservationMap({ data, selectedSpecies = new Set<string>() }: { 
       .filter((obs): obs is Observation => Boolean(obs));
   }, [selectedBubbleIds, observationsMap]);
 
+  useEffect(() => {
+    if (selectedObservations.length > 0) {
+      setActiveObservationId(selectedObservations[0].composite_id ?? null);
+    } else {
+      setActiveObservationId(null);
+    }
+  }, [selectedObservations]);
+
+  useEffect(() => {
+    if (!selectedBubbleIds) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      const sidebar = sidebarRef.current;
+      const mapContainer = mapContainerRef.current;
+      if (!sidebar || !mapContainer) return;
+      if (sidebar.contains(e.target as Node)) return;
+      if (mapContainer.contains(e.target as Node)) return;
+      setSelectedBubbleIds(null);
+      setActiveObservationId(null);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [selectedBubbleIds]);
+
   return (
-    <div className="relative h-full w-full overflow-hidden rounded-lg border bg-card">
+    <div ref={mapContainerRef} className="relative h-full w-full overflow-hidden rounded-lg border bg-card">
       <MapContainer
         center={center}
         zoom={7}
@@ -229,7 +262,15 @@ export function ObservationMap({ data, selectedSpecies = new Set<string>() }: { 
         />
         <FitBounds obs={data} />
         <ZoomTracker onZoom={setZoom} />
-        <MapClickHandler bubbles={clickableBubbles} zoom={zoom} onSelect={setSelectedBubbleIds} />
+        <MapClickHandler
+          bubbles={clickableBubbles}
+          zoom={zoom}
+          onSelect={setSelectedBubbleIds}
+          onClose={() => {
+            setSelectedBubbleIds(null);
+            setActiveObservationId(null);
+          }}
+        />
         {visibleMonitoringAreas && (
           <GeoJSON
             key={Array.from(filters.monitoringAreas).sort().join("|")}
@@ -281,17 +322,19 @@ export function ObservationMap({ data, selectedSpecies = new Set<string>() }: { 
         {bubbles.map((bubble, i) => {
           const colors = getCategoryColor(bubble.category);
           const isSelected = selectedSpecies.size === 0 || selectedSpecies.has(bubble.raw_observations[0]?.species);
+          const isBubbleSelected = selectedBubbleIds !== null && bubble.observation_ids.some((id) => selectedBubbleIds.includes(id));
+          const baseRadius = Math.min(5 + bubble.count * 2, 40);
           return (
             <CircleMarker
               key={i}
               center={[bubble.lat, bubble.lng]}
-              radius={Math.min(5 + bubble.count * 2, 40)}
+              radius={isBubbleSelected ? baseRadius + 4 : baseRadius}
               pathOptions={{
-                color: colors.color,
-                fillColor: colors.fillColor,
-                fillOpacity: isSelected ? 0.6 : 0.15,
-                weight: isSelected ? 2 : 1,
-                opacity: isSelected ? 1 : 0.3,
+                color: isBubbleSelected ? "black" : colors.color,
+                fillColor: isBubbleSelected ? "white" : colors.fillColor,
+                fillOpacity: isBubbleSelected ? 1 : (isSelected ? 0.6 : 0.15),
+                weight: isBubbleSelected ? 2 : (isSelected ? 2 : 1),
+                opacity: isBubbleSelected ? 1 : (isSelected ? 1 : 0.3),
               }}
               interactive={false}
               renderer={canvasRenderer}
@@ -300,7 +343,7 @@ export function ObservationMap({ data, selectedSpecies = new Set<string>() }: { 
         })}
       </MapContainer>
       {selectedBubbleIds && (
-        <div className="absolute top-0 right-0 h-full w-80 bg-white shadow-2xl z-[1000] p-4 overflow-y-auto flex flex-col gap-4">
+        <div ref={sidebarRef} className="absolute top-0 right-0 h-full w-80 bg-white shadow-2xl z-[1000] p-4 overflow-y-auto flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">
               פרטי תצפית ({selectedObservations.length})
@@ -319,7 +362,10 @@ export function ObservationMap({ data, selectedSpecies = new Set<string>() }: { 
           {selectedObservations.map((obs, idx) => (
             <div
               key={obs.composite_id ?? idx}
-              className="flex flex-col gap-1 rounded-lg border p-3 text-sm shadow-sm"
+              onClick={() => setActiveObservationId(obs.composite_id ?? null)}
+              className={`flex flex-col gap-1 rounded-lg border p-3 text-sm shadow-sm cursor-pointer transition-colors ${
+                activeObservationId === obs.composite_id ? "bg-blue-50 ring-1 ring-blue-200" : ""
+              }`}
             >
               <div className="text-center font-medium italic">
                 {lang === "he" ? translateSpeciesName(obs.scientific_name) : obs.scientific_name}

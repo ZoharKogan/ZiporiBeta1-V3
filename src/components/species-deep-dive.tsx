@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useObservations, getSpeciesClassification, getTaxaGroup, TAXA_GROUP_KEYS, type TaxaGroupKey } from "@/lib/observations-store";
 import { useI18n } from "@/lib/i18n";
 import { speciesMap, type SpeciesInfo } from "@/lib/species-map";
@@ -97,6 +97,7 @@ export function SpeciesDeepDive() {
   const activeCategory = category as TaxaGroupKey | null;
   const { setDeepDiveCategory, toggleDeepDiveSpecies, clearDeepDiveSpecies, setDeepDiveSearch } = deepDiveActions;
   const [isSpeciesDropdownOpen, setIsSpeciesDropdownOpen] = useState(true);
+  const speciesDropdownRef = useRef<HTMLDivElement>(null);
 
   // Group every identified (non-generic) species entry into dashboard categories
   const groupedSpecies = useMemo(() => {
@@ -230,6 +231,17 @@ export function SpeciesDeepDive() {
   );
   const activeColors = activeCategory ? (CATEGORY_COLORS[activeCategory] || DEFAULT_COLOR) : DEFAULT_COLOR;
 
+  useEffect(() => {
+    if (!isSpeciesDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (speciesDropdownRef.current && !speciesDropdownRef.current.contains(e.target as Node)) {
+        setIsSpeciesDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isSpeciesDropdownOpen]);
+
   return (
     <main className="flex h-full w-full flex-col overflow-hidden">
       {/* Top Row: KPIs on side + Category tabs centered */}
@@ -275,7 +287,7 @@ export function SpeciesDeepDive() {
 
       {/* Species sub-filter row - 8% height */}
       <div className="h-[8%] shrink-0 flex items-center gap-3 px-4 py-1.5 border-b">
-          <div className="relative shrink-0 flex items-center gap-1">
+          <div ref={speciesDropdownRef} className="relative shrink-0 flex items-center gap-1">
             <div className="relative w-44">
               <Search className="absolute start-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
               <Input
@@ -344,38 +356,7 @@ export function SpeciesDeepDive() {
             )}
           </div>
 
-          <div className="flex-1 overflow-x-auto scrollbar-hide flex flex-nowrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={clearDeepDiveSpecies}
-              className={`shrink-0 inline-flex items-center rounded-full border px-3 py-1 text-xs transition-all duration-200 ${
-                species.size === 0 ? activeColors.active : activeColors.inactive
-              }`}
-            >
-              {t("all")}
-            </button>
-
-            {speciesList
-              .filter((sp) => !activeCategory || (speciesObservationCounts.get(sp.Scientific_Name) ?? 0) > 0)
-              .sort((a, b) => (speciesObservationCounts.get(b.Scientific_Name) ?? 0) - (speciesObservationCounts.get(a.Scientific_Name) ?? 0))
-              .map((sp) => {
-              const count = speciesObservationCounts.get(sp.Scientific_Name) ?? 0;
-              const isSelected = species.has(sp.Scientific_Name);
-              return (
-                <button
-                  key={sp.Scientific_Name}
-                  type="button"
-                  onClick={() => toggleDeepDiveSpecies(sp.Scientific_Name)}
-                  title={sp.Scientific_Name}
-                  className={`shrink-0 inline-flex items-center rounded-full border px-2.5 py-1 text-xs transition-all duration-200 whitespace-nowrap ${
-                    isSelected ? activeColors.active : activeColors.inactive
-                  }`}
-                >
-                  {getSpeciesLabel(sp, lang)} ({count.toLocaleString()})
-                </button>
-              );
-            })}
-          </div>
+          <div className="flex-1" />
         </div>
 
       {/* Map Container */}

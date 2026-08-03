@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, ListFilter } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { Input } from "@/components/ui/input";
@@ -65,6 +65,18 @@ export function PeopleDashboard() {
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(true);
   const [userSearch, setUserSearch] = useState("");
+  const userDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isUserDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userDropdownRef.current && !userDropdownRef.current.contains(e.target as Node)) {
+        setIsUserDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isUserDropdownOpen]);
 
   // Apply global filters except the group filter; this page has its own group selector.
   const globallyFilteredObservations = useMemo(() => {
@@ -225,7 +237,7 @@ export function PeopleDashboard() {
 
       {/* User filter row - 8% height */}
       <div className="h-[8%] shrink-0 flex items-center gap-3 px-4 py-1.5 border-b">
-        <div className="relative shrink-0 flex items-center gap-1">
+        <div ref={userDropdownRef} className="relative shrink-0 flex items-center gap-1">
           <div className="relative w-44">
             <Search className="absolute start-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
             <Input
@@ -293,37 +305,7 @@ export function PeopleDashboard() {
           )}
         </div>
 
-        <div className="flex-1 overflow-x-auto scrollbar-hide flex flex-nowrap items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setSelectedUser(null)}
-            className={`shrink-0 inline-flex items-center rounded-full border px-3 py-1 text-xs transition-all duration-200 ${
-              selectedUser === null ? USER_ACTIVE_CHIP : USER_INACTIVE_CHIP
-            }`}
-          >
-            {t("all")}
-          </button>
-          {userChipList.map(({ user, count }) => {
-            const isSelected = selectedUser === user;
-            return (
-              <button
-                key={user}
-                type="button"
-                onClick={() => handleUserClick(user)}
-                title={user}
-                className={`shrink-0 inline-flex items-center rounded-full border px-2.5 py-1 text-xs transition-all duration-200 whitespace-nowrap ${
-                  isSelected
-                    ? user === REA_SHAISH_NAME
-                      ? REA_SHAISH_ACTIVE_CHIP
-                      : USER_ACTIVE_CHIP
-                    : USER_INACTIVE_CHIP
-                }`}
-              >
-                {user} ({count.toLocaleString()})
-              </button>
-            );
-          })}
-        </div>
+        <div className="flex-1" />
       </div>
 
       {/* Map Container */}
